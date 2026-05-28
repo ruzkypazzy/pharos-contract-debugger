@@ -1,0 +1,18 @@
+{
+  "networks": {
+    "mainnet": {
+      "name": "Pharos Pacific Ocean Mainnet",
+      "chainId": 1672,
+      "currency": "PROS",
+      "rpc": "https://rpc.pharos.xyz",
+      "explorer": "https://pharosscan.xyz"
+    },
+    "testnet": {
+      "name": "Pharos Atlantic Testnet",
+      "chainId": 688689,
+      "currency": "PHRS",
+      "rpc": "https://rpc-testnet.pharosnetwork.xyz",
+      "explorer": "https://testnet.pharosscan.xyz"
+    }
+  }
+}
