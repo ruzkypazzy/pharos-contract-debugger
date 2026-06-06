@@ -1,18 +1,23 @@
 {
-  "networks": {
-    "mainnet": {
-      "name": "Pharos Pacific Ocean Mainnet",
-      "chainId": 1672,
-      "currency": "PROS",
-      "rpc": "https://rpc.pharos.xyz",
-      "explorer": "https://pharosscan.xyz"
-    },
-    "testnet": {
-      "name": "Pharos Atlantic Testnet",
+  "networks": [
+    {
+      "name": "atlantic-testnet",
+      "displayName": "Pharos Atlantic Testnet",
       "chainId": 688689,
-      "currency": "PHRS",
-      "rpc": "https://rpc-testnet.pharosnetwork.xyz",
-      "explorer": "https://testnet.pharosscan.xyz"
+      "nativeToken": "PHRS",
+      "rpcUrl": "https://atlantic.dplabs-internal.com",
+      "explorerUrl": "https://atlantic.pharosscan.xyz/",
+      "explorerApiUrl": "https://api.socialscan.io/pharos-atlantic-testnet"
+    },
+    {
+      "name": "mainnet",
+      "displayName": "Pharos Pacific Ocean Mainnet",
+      "chainId": 1672,
+      "nativeToken": "PROS",
+      "rpcUrl": "https://rpc.pharos.xyz",
+      "explorerUrl": "https://www.pharosscan.xyz/",
+      "explorerApiUrl": "https://api.socialscan.io/pharos-mainnet"
     }
-  }
+  ],
+  "defaultNetwork": "atlantic-testnet"
 }
