@@ -27,6 +27,16 @@ The skill defaults to **Atlantic Testnet** (matches the official `pharos-skill-e
 
 ## Quick start
 
+### Install
+
+```bash
+git clone https://github.com/ruzkypazzy/pharos-contract-debugger
+cd pharos-contract-debugger
+chmod +x scripts/*.sh
+```
+
+No `npm install`, no `pip install`, no build step — pure bash + curl. The only optional dep is `cast` (from Foundry) for the richer `debug_demo.sh` output. See **Requirements** below.
+
 ### One-shot debug
 
 ```bash
