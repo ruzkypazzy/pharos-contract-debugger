@@ -122,22 +122,6 @@ chmod +x scripts/*.sh
 ```
 
 That's it. No `pip install`, no `npm install`, no `forge build`, no compile. The skill is one or more bash scripts that use `cast` (from Foundry) for every RPC read. The `assets/networks.json` file already knows the Pharos Pacific Mainnet and Atlantic Testnet endpoints.
-## Install
-
-```bash
-# 1. Install Foundry
-curl -L https://foundry.paradigm.xyz | bash
-foundryup
-cast --version
-
-# 2. Get the skill
-git clone https://github.com/ruzkypazzy/pharos-contract-debugger
-cd pharos-contract-debugger
-chmod +x scripts/*.sh
-```
-
-No `npm install`, no `pip install`, no build step — pure bash + `cast`.
-
 ### One-shot debug
 
 ```bash
