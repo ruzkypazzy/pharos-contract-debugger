@@ -1,12 +1,12 @@
 ---
 name: pharos-contract-debugger
-description: Debugs failed transactions and smart-contract errors on Pharos Atlantic Testnet and Pacific Ocean Mainnet. Use this skill whenever the user asks why a Pharos transaction failed, wants a revert reason decoded, or needs help diagnosing a smart-contract error on Pharos. Triggers on phrases like "why did my tx fail", "decode this revert", "pharos transaction error", "what went wrong with this hash".
-version: 1.1.0
+description: Debugs failed transactions and smart-contract errors on Pharos Atlantic Testnet and Pacific Ocean Mainnet. Use this skill whenever the agent asks why a Pharos transaction failed, wants a revert reason decoded, or needs help diagnosing a smart-contract error on Pharos. Triggers on phrases like "why did my tx fail", "decode this revert", "pharos transaction error", "what went wrong with this hash".
+version: 2.0.0
 author: ruzkypazzy
 requires: read
-bins: [bash, curl, cast, python3]
+bins: [bash, cast, jq]
 network: pharos
-tags: [pharos, debugging, transactions, smart-contracts, defi, mainnet, testnet, atlantic, pacific]
+tags: [pharos, debugging, transactions, smart-contracts, defi, mainnet, testnet, atlantic, pacific, foundry]
 agents: [claude, codex, gemini, openclaw]
 ---
 
@@ -100,19 +100,21 @@ Always include: network, status, cause in plain English, the 4-byte selector if 
 
 ## Prerequisites
 
-```bash
-# Bash 4+ and curl are preinstalled on most systems
-bash --version
-curl --version
+Foundry is **required** for this skill. The script uses `cast` for
+all RPC reads (no curl, no jq for the core path):
 
-# Optional but recommended for the rich JSON output path
+```bash
+# Install Foundry
 curl -L https://foundry.paradigm.xyz | bash
 foundryup
-cast --version
+cast --version   # should print 0.2.0 or later
 ```
 
+`jq` is used by some shell snippets in `references/` and is
+recommended but not required for the main `debug.sh` script.
+
 The skill does **not** require a private key — it is read-only. It
-reads public on-chain data via the RPC and the PharosScan API.
+reads public on-chain data via the RPC using Foundry's `cast` tool.
 
 ## Network Configuration
 
