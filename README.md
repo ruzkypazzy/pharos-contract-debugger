@@ -2,16 +2,16 @@
 
 A smart-contract debugging skill for the [Pharos Agent Center](https://www.pharos.xyz/agent-center). Paste in any failed transaction hash from **Pharos Atlantic Testnet** or **Pharos Pacific Ocean Mainnet** and the skill returns a plain-English diagnosis of what went wrong — out of gas, reverted with a custom error, wrong network, missing allowance — plus a concrete fix.
 
-The skill uses the standard Pharos toolchain (`cast` + `curl`) so it runs anywhere Foundry is installed and needs no extra dependencies.
+The skill is built on the **Foundry** toolchain. All RPC reads go through `cast`. No curl, no jq, no Python — just bash + `cast`.
 
 ## What it diagnoses
 
 | Failure mode | How it's detected | Suggested fix |
 |---|---|---|
-| Out of gas | `gasUsed == gasLimit` on a failed tx | Re-send with `gas_limit = gasUsed × 1.3` |
-| Reverted with custom error | Decodes the 4-byte selector via `cast 4byte` | Surfaces the human-readable error name and a fix path |
+| Out of gas | `gasUsed == gasLimit` (via `cast receipt`) | Re-send with `gas_limit = gasUsed × 1.3` |
+| Reverted with custom error | Decodes the 4-byte selector | Surfaces the human-readable error name and a fix path |
 | Reverted without a reason | `gasUsed < gasLimit` but no error data | Common causes list: balance, allowance, role, paused, args |
-| Wrong network | `eth_getTransactionReceipt` returns `null` | Reminds you to switch chain ID |
+| Wrong network | `cast receipt` returns nothing | Reminds you to switch chain ID |
 | Insufficient allowance | Detects `0x13be252b` selector | `cast send <token> "approve(spender,amount)"` template |
 | Insufficient balance | Detects `0xf4d758bb` selector | Top-up suggestions + decimal sanity check |
 | Panic(uint256) | Decodes `0x4e487b71` and the panic code | Maps to overflow / divide-by-zero / out-of-bounds |
@@ -27,7 +27,31 @@ The skill defaults to **Atlantic Testnet** (matches the official `pharos-skill-e
 
 ## Quick start
 
-### Install
+## Install
+
+### 1. Install Foundry (the engine the skill is built on)
+
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+```
+
+Verify with `cast --version`. This gives you `cast`, `forge`, `anvil`, and `chisel` on your `$PATH`.
+
+### 2. Install jq (used to parse JSON)
+
+```bash
+# macOS
+brew install jq
+# Debian/Ubuntu/Termux
+apt install -y jq
+# Alpine
+apk add jq
+```
+
+Verify with `jq --version`.
+
+### 3. Get the skill
 
 ```bash
 git clone https://github.com/ruzkypazzy/pharos-contract-debugger
@@ -35,7 +59,22 @@ cd pharos-contract-debugger
 chmod +x scripts/*.sh
 ```
 
-No `npm install`, no `pip install`, no build step — pure bash + curl. The only optional dep is `cast` (from Foundry) for the richer `debug_demo.sh` output. See **Requirements** below.
+That's it. No `pip install`, no `npm install`, no `forge build`, no compile. The skill is one or more bash scripts that use `cast` (from Foundry) for every RPC read. The `assets/networks.json` file already knows the Pharos Pacific Mainnet and Atlantic Testnet endpoints.
+## Install
+
+```bash
+# 1. Install Foundry
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+cast --version
+
+# 2. Get the skill
+git clone https://github.com/ruzkypazzy/pharos-contract-debugger
+cd pharos-contract-debugger
+chmod +x scripts/*.sh
+```
+
+No `npm install`, no `pip install`, no build step — pure bash + `cast`.
 
 ### One-shot debug
 
@@ -45,14 +84,6 @@ bash scripts/debug.sh 0x9606bcfd027b28e6783ca8b5fef1c3311476a1c30e5bf4464d0340a0
 
 # Debug a tx on Atlantic testnet
 bash scripts/debug.sh 0xYOUR_TX_HASH --network testnet
-```
-
-### Zero-dependency demo
-
-If you don't have a failed tx handy, the demo script uses a real mainnet tx so you can see the full report:
-
-```bash
-bash scripts/debug_demo.sh
 ```
 
 ### Via the agent (SKILL.md)
@@ -65,9 +96,8 @@ The agent will run the script and read the diagnosis back to you.
 
 ## Requirements
 
-- `bash` 4+ and `curl`
-- [`cast`](https://book.getfoundry.sh/getting-started/installation) (installed with Foundry) — only used by `debug_demo.sh` for the rich JSON output
-- `jq` — only used by `debug_demo.sh`
+- `bash` 4+
+- [`cast`](https://book.getfoundry.sh/getting-started/installation) (installed with Foundry) — **required**, all RPC reads go through it
 
 `debug.sh` is the dependency-free fallback (pure curl + grep + bash arithmetic). `debug_demo.sh` is the prettier version that needs `cast` and `jq`.
 
