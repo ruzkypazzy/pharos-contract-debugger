@@ -3,6 +3,9 @@ name: pharos-contract-debugger
 description: Debugs failed transactions and smart-contract errors on Pharos Atlantic Testnet and Pacific Ocean Mainnet. Use this skill whenever the user asks why a Pharos transaction failed, wants a revert reason decoded, or needs help diagnosing a smart-contract error on Pharos. Triggers on phrases like "why did my tx fail", "decode this revert", "pharos transaction error", "what went wrong with this hash".
 version: 1.1.0
 author: ruzkypazzy
+requires: read
+bins: [bash, curl, cast, python3]
+network: pharos
 tags: [pharos, debugging, transactions, smart-contracts, defi, mainnet, testnet, atlantic, pacific]
 agents: [claude, codex, gemini, openclaw]
 ---
@@ -94,3 +97,72 @@ Always include: network, status, cause in plain English, the 4-byte selector if 
 - `references/error-patterns.md` — full selector → cause → fix table
 - `references/networks.json` — canonical network config
 - `examples/sample-output.md` — what a real run looks like
+
+## Prerequisites
+
+```bash
+# Bash 4+ and curl are preinstalled on most systems
+bash --version
+curl --version
+
+# Optional but recommended for the rich JSON output path
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+cast --version
+```
+
+The skill does **not** require a private key — it is read-only. It
+reads public on-chain data via the RPC and the PharosScan API.
+
+## Network Configuration
+
+Network RPC URLs and chain IDs are sourced from
+`assets/networks.json` (canonical Pharos Skill Engine schema). To
+add a new network, append a new object to the `networks` array and
+update `defaultNetwork` if needed.
+
+## Capability Index
+
+| User Need | Capability | Detailed Instructions |
+|---|---|---|
+| "Why did my Pharos tx fail?" | Decode revert reason + panic code | Run `bash scripts/debug.sh 0xTX_HASH --network mainnet`; the script reads the tx receipt, extracts the revert selector, maps it to a human name, and prints the offending opcode |
+| "What does `0x4e487b71...` mean?" | Solidity Panic code lookup | The skill recognizes the 4-byte Panic(uint256) selector and maps codes (`0x11` overflow, `0x12` divide-by-zero, `0x21` index OOB, `0x32` initialized storage) to a sentence |
+| "I think I ran out of gas" | Detect `gasUsed == gasLimit` failure | The skill checks `gasUsed` vs `gasLimit` and suggests `gas_limit = gasUsed × 1.3` for the next send |
+| "Am I on the right chain?" | Cross-check chainId from receipt | The skill reads `eth_getTransactionReceipt`, extracts the chainId, and reports a mismatch warning |
+| "Decode a custom error" | ABI selector lookup via cast | The skill calls `cast 4byte <selector>` and surfaces the human-readable error name |
+
+## General Error Handling
+
+| Error Scenario | CLI Error Signature | Handling |
+|---|---|---|
+| Tx not found on chain | `null` receipt returned by `eth_getTransactionReceipt` | Remind the user to switch networks; the tx may be on a different chain |
+| RPC rate-limited | HTTP 429 from `eth_blockNumber` or `eth_getTransactionReceipt` | Retry with exponential backoff (already implemented in the bash script); suggest a paid RPC for high-volume use |
+| Invalid tx hash format | Bash script exits with "hash must be 0x + 64 hex chars" | Prompt the user to re-paste the full hash including the `0x` prefix |
+| Cast not installed (only affects rich JSON path) | `command not found: cast` | The script auto-detects and falls back to the curl-only output path; suggest `foundryup` for the richer experience |
+| Bad network flag | `--network foo` (not in networks.json) | Exit with the list of valid networks; default to atlantic-testnet |
+
+## Security Reminders
+
+- **Private Key Protection** — the skill is read-only and never
+  accepts a private key. If a user pastes one by accident, warn
+  them and ask them to rotate the key (treat it as leaked).
+- **Network Confirmation** — before any future write-skill
+  integration, confirm the network (Atlantic testnet vs Pacific
+  mainnet) with the user.
+- **Tx Privacy** — a tx hash is a public identifier; do not paste
+  hashes that the user has not explicitly shared.
+
+## Write Operation Pre-checks
+
+This skill is **read-only** and never submits a transaction, so the
+full 4-step write pre-check is not applicable. If a future version
+adds a "simulate the fix" path, the pre-checks must include:
+
+1. **Private Key Check** — `--private-key` / `$PRIVATE_KEY` must be
+   set; warn if the key has zero balance.
+2. **Derive Public Address** — `cast wallet address`; confirm the
+   key is for the intended network.
+3. **Network Confirmation** — prompt the user with "You are about
+   to write to Pacific mainnet. Continue? (y/N)".
+4. **Automatic Balance Check** — `cast balance`; if below the
+   operation cost + gas, abort with a clear error.
