@@ -6,7 +6,6 @@
 #
 # Usage: bash scripts/debug.sh <TX_HASH> [--network mainnet|testnet]
 
-# Foundry is mandatory for this script.
 # -------- arg parsing --------
 TX_HASH=""
 NETWORK_OVERRIDE=""
@@ -98,29 +97,53 @@ echo "RPC:     $RPC_URL"
 echo "TX:      $TX_HASH"
 echo ""
 
-# -------- fetch receipt via cast --------
+# -------- fetch receipt via cast (try --json first, fall back to per-field) --------
 echo "📡 Fetching transaction receipt via cast..."
 RECEIPT_JSON=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" --json 2>/dev/null || echo "")
 
+# Parse status robustly. Accept any of:
+#   - "0x1" / "0x0"     (hex with 0x prefix — most common)
+#   - "0X1" / "0X0"     (uppercase)
+#   - "1" / "0"        (bare number)
+# Treat "1" or anything truthy as success, "0" as failure.
+extract_status() {
+  local s
+  s=$(echo "$RECEIPT_JSON" | jq -r '.status // empty' 2>/dev/null)
+  if [ -z "$s" ]; then
+    s=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" status 2>/dev/null | tr -d '[:space:]')
+  fi
+  # Normalize: lowercase, strip leading 0x
+  s=$(echo "$s" | tr '[:upper:]' '[:lower:]')
+  s="${s#0x}"
+  echo "$s"
+}
+STATUS_HEX=$(extract_status)
+
 if [ -z "$RECEIPT_JSON" ] || [ "$RECEIPT_JSON" = "null" ] || ! echo "$RECEIPT_JSON" | grep -q '"status"'; then
-  echo "❌ Transaction not found on $NET_KEY."
-  OTHER=$([ "$NET_KEY" = "mainnet" ] && echo testnet || echo mainnet)
-  echo "   Try: bash scripts/debug.sh $TX_HASH --network $OTHER"
-  exit 1
+  # If the JSON parse failed but the per-field status returned something, that's OK
+  if [ -z "$STATUS_HEX" ]; then
+    echo "❌ Transaction not found on $NET_KEY."
+    OTHER=$([ "$NET_KEY" = "mainnet" ] && echo testnet || echo mainnet)
+    echo "   Try: bash scripts/debug.sh $TX_HASH --network $OTHER"
+    exit 1
+  fi
 fi
 
-# -------- extract via cast (no manual JSON parsing) --------
-STATUS=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" status 2>/dev/null | tr -d '\n')
-GAS_USED_HEX=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" gasUsed 2>/dev/null | tr -d '\n')
-BLOCK_HEX=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" blockNumber 2>/dev/null | tr -d '\n')
-TO=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" to 2>/dev/null | tr -d '\n')
-FROM=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" from 2>/dev/null | tr -d '\n')
+# -------- extract other receipt fields via cast (more reliable than JSON parsing) --------
+TO=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" to 2>/dev/null | tr -d '\n' | tr -d '[:space:]')
+FROM=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" from 2>/dev/null | tr -d '\n' | tr -d '[:space:]')
+GAS_USED_HEX=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" gasUsed 2>/dev/null | tr -d '\n' | tr -d '[:space:]')
+BLOCK_HEX=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" blockNumber 2>/dev/null | tr -d '\n' | tr -d '[:space:]')
+GAS_LIMIT_HEX=$(cast tx --rpc-url "$RPC_URL" "$TX_HASH" gasLimit 2>/dev/null | tr -d '\n' | tr -d '[:space:]')
 
-# Compare gas limit vs gas used
-GAS_LIMIT_HEX=$(cast tx --rpc-url "$RPC_URL" "$TX_HASH" gasLimit 2>/dev/null | tr -d '\n')
-GAS_USED=$(cast --to-dec "$GAS_USED_HEX" 2>/dev/null | tr -d '\n')
-GAS_LIMIT=$(cast --to-dec "$GAS_LIMIT_HEX" 2>/dev/null | tr -d '\n')
-BLOCK=$(cast --to-dec "$BLOCK_HEX" 2>/dev/null | tr -d '\n')
+GAS_USED=$(cast --to-dec "$GAS_USED_HEX" 2>/dev/null | tr -d '[:space:]')
+GAS_LIMIT=$(cast --to-dec "$GAS_LIMIT_HEX" 2>/dev/null | tr -d '[:space:]')
+BLOCK=$(cast --to-dec "$BLOCK_HEX" 2>/dev/null | tr -d '[:space:]')
+
+# Default gas values if cast failed
+[ -z "$GAS_USED" ] && GAS_USED=0
+[ -z "$GAS_LIMIT" ] && GAS_LIMIT=0
+[ -z "$BLOCK" ] && BLOCK="(unknown)"
 
 # -------- common known-error labels (no external dep) --------
 label_for_selector() {
@@ -144,15 +167,18 @@ echo "Block:    $BLOCK"
 echo "From:     $FROM"
 echo "To:       $TO"
 echo "Gas:      $GAS_USED used / $GAS_LIMIT limit"
+echo "Status:   $STATUS_HEX (1 = success, 0 = failure)"
 echo ""
 
-if [ "$STATUS" = "0x1" ]; then
+# Status check: 1 (or anything non-zero/non-empty) = success, 0 = failure
+# Handle both "1" (decimal) and "0x1" (hex) by stripping 0x already done above
+if [ -n "$STATUS_HEX" ] && [ "$STATUS_HEX" != "0" ]; then
   echo "✅ STATUS: SUCCESS"
   echo "   Transaction executed successfully."
-  [ "$GAS_LIMIT" -gt 0 ] 2>/dev/null && {
+  if [ "$GAS_LIMIT" -gt 0 ] 2>/dev/null; then
     PCT=$(( GAS_USED * 100 / GAS_LIMIT ))
     echo "   Gas utilization: ${PCT}%"
-  }
+  fi
 else
   echo "❌ STATUS: FAILED"
   echo ""
