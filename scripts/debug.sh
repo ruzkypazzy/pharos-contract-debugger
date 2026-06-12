@@ -7,12 +7,6 @@
 # Usage: bash scripts/debug.sh <TX_HASH> [--network mainnet|testnet]
 
 # Foundry is mandatory for this script.
-if ! command -v cast >/dev/null 2>&1; then
-  echo "Error: 'cast' not found. Install Foundry:"
-  echo "  curl -L https://foundry.paradigm.xyz | bash && foundryup"
-  exit 1
-fi
-
 # -------- arg parsing --------
 TX_HASH=""
 NETWORK_OVERRIDE=""
@@ -81,6 +75,13 @@ case "$NET" in
   mainnet|pacific|pacific-mainnet)   NET_KEY="mainnet" ;;
   *) echo "Unknown network: $NET"; exit 1 ;;
 esac
+
+# ---- Foundry required (checked AFTER network resolution so --network bogus is detected first) ----
+if ! command -v cast >/dev/null 2>&1; then
+  echo "Error: 'cast' not found. Install Foundry:" >&2
+  echo "  curl -L https://foundry.paradigm.xyz | bash && foundryup" >&2
+  exit 1
+fi
 
 RPC_URL=$(get_field     "$NET_KEY" "rpcUrl")
 EXPLORER_URL=$(get_field "$NET_KEY" "explorerUrl")

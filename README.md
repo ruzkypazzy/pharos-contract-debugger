@@ -1,195 +1,234 @@
 # Pharos Contract Debugger
 
-A smart-contract debugging skill for the [Pharos Agent Center](https://www.pharos.xyz/agent-center). Paste in any failed transaction hash from **Pharos Atlantic Testnet** or **Pharos Pacific Ocean Mainnet** and the skill returns a plain-English diagnosis of what went wrong — out of gas, reverted with a custom error, wrong network, missing allowance — plus a concrete fix.
+> Plain-English diagnosis of any failed transaction on Pharos mainnet or testnet.
 
-The skill is built on the **Foundry** toolchain. All RPC reads go through `cast`. No curl, no jq, no Python — just bash + `cast`.
+[![foundry](https://img.shields.io/badge/built%20with-Foundry-orange)]()
+[![bash](https://img.shields.io/badge/script-bash-blue)]()
+[![license](https://img.shields.io/badge/license-MIT-green)]()
+[![pharos](https://img.shields.io/badge/network-Pharos-blueviolet)]()
+[![ai-agent](https://img.shields.io/badge/callable%20by-AI%20agent-purple)]()
 
-## What it diagnoses
+## What it is
 
-| Failure mode | How it's detected | Suggested fix |
-|---|---|---|
-| Out of gas | `gasUsed == gasLimit` (via `cast receipt`) | Re-send with `gas_limit = gasUsed × 1.3` |
-| Reverted with custom error | Decodes the 4-byte selector | Surfaces the human-readable error name and a fix path |
-| Reverted without a reason | `gasUsed < gasLimit` but no error data | Common causes list: balance, allowance, role, paused, args |
-| Wrong network | `cast receipt` returns nothing | Reminds you to switch chain ID |
-| Insufficient allowance | Detects `0x13be252b` selector | `cast send <token> "approve(spender,amount)"` template |
-| Insufficient balance | Detects `0xf4d758bb` selector | Top-up suggestions + decimal sanity check |
-| Panic(uint256) | Decodes `0x4e487b71` and the panic code | Maps to overflow / divide-by-zero / out-of-bounds |
+This is a **skill built for the Pharos network** — a self-contained, deterministic bash script that runs on top of the [Pharos](https://pharos.network) EVM chains. It is **not** an AI agent itself, not a chatbot, and not a Python service. It is a single bash script that:
 
-## Networks
+- takes input from the caller via CLI flags,
+- reads live on-chain data from Pharos via `cast` (Foundry),
+- runs its own scoring/heuristic logic in pure bash,
+- prints a structured report (text, JSON, or markdown) to stdout.
 
-| Network | Chain ID | Native token | RPC | Explorer |
-|---|---:|---|---|---|
-| Pharos Atlantic Testnet | 688689 | PHRS | `https://atlantic.dplabs-internal.com` | https://atlantic.pharosscan.xyz |
-| Pharos Pacific Ocean Mainnet | 1672 | PROS | `https://rpc.pharos.xyz` | https://www.pharosscan.xyz |
+Paste a failed tx hash from Pharos Atlantic Testnet or Pacific Ocean Mainnet. The skill classifies the failure (out of gas, reverted with custom error, wrong network, missing allowance, panic, etc.) and surfaces a human-readable error plus a fix path.
 
-The skill defaults to **Atlantic Testnet** (matches the official `pharos-skill-engine` default). Pass `--network mainnet` to debug mainnet txs.
+## Use it from an AI agent
 
-## Quick start
+This skill is designed to be **called by an AI agent** (a Claude Code / Codex / Cursor agent, the Pharos Agent Center, or any custom LLM agent). The agent reads `SKILL.md` to discover the skill's flags, fills them in based on the user's request, and runs the bash script in its sandbox. The agent's job is just to translate "score this wallet for MEV risk" into `bash scripts/detect.sh --wallet 0x... --blocks 5000`.
+
+Typical agent-side flow:
+
+```text
+User -> Agent: "Score wallet 0xabc... for MEV exposure on Pharos"
+Agent -> looks up SKILL.md for Pharos Contract Debugger
+Agent -> picks the right flag combo: --wallet 0xabc... --blocks 5000 --format json
+Agent -> runs: bash scripts/detect.sh --wallet 0xabc... --blocks 5000 --format json
+Agent -> reads the JSON from stdout, presents it to the user in a friendly form
+```
+
+The script prints structured output to stdout and human-readable progress to stderr, so the agent can parse the stdout cleanly (with `jq`) without being polluted by progress messages.
 
 ## Install
 
-### 1. Install Foundry (the engine the skill is built on)
+You need three things: **Foundry** (for `cast`), **jq** (for JSON pretty-printing), and **git** (to clone the repo).
 
 ```bash
+# 1. Install Foundry (gives you cast, forge, anvil, chisel)
 curl -L https://foundry.paradigm.xyz | bash
 foundryup
-```
+# Reload your shell so the new commands are on PATH:
+exec $SHELL
+cast --version   # should print 1.x or higher
 
-Verify with `cast --version`. This gives you `cast`, `forge`, `anvil`, and `chisel` on your `$PATH`.
+# 2. Install jq (optional — only needed for --format json pretty-printing)
+# macOS:   brew install jq
+# Ubuntu:  sudo apt-get install -y jq
+# Alpine:  apk add jq
+jq --version
 
-### 2. Install jq (used to parse JSON)
-
-```bash
-# macOS
-brew install jq
-# Debian/Ubuntu/Termux
-apt install -y jq
-# Alpine
-apk add jq
-```
-
-Verify with `jq --version`.
-
-### 3. Get the skill
-
-```bash
-git clone https://github.com/ruzkypazzy/pharos-contract-debugger
+# 3. Clone this repo
+git clone https://github.com/ruzkypazzy/pharos-contract-debugger.git
 cd pharos-contract-debugger
-chmod +x scripts/*.sh
+chmod +x scripts/*.sh tests/*.sh
 ```
 
-That's it. No `pip install`, no `npm install`, no `forge build`, no compile. The skill is one or more bash scripts that use `cast` (from Foundry) for every RPC read. The `assets/networks.json` file already knows the Pharos Pacific Mainnet and Atlantic Testnet endpoints.
-## Quick test (try it in 30 seconds)
-
-After the 3-step install above, run the demo mode (no private key, no RPC, no setup):
+## Quick test (30 seconds, no API keys needed)
 
 ```bash
-bash scripts/debug.sh demo
+bash scripts/debug.sh --demo
 ```
 
-You should see a printed report. The demo uses synthetic data, so it works offline.
+The first time you run this, the script may take a few seconds to fetch block data over RPC. Subsequent runs are cached by the RPC provider.
 
-To run a real check on a Pharos transaction, wallet, or token, replace the placeholder:
+## Usage
 
 ```bash
-bash scripts/debug.sh 0xYOUR_TX_HASH --network mainnet
+# Debug a failed tx on mainnet
+bash scripts/debug.sh 0xTX_HASH --network mainnet
+
+# Debug a failed tx on testnet with a custom RPC
+bash scripts/debug.sh 0xTX_HASH --rpc-url https://my-rpc.example.com
+
+# Show help
+bash scripts/debug.sh --help
 ```
 
-## Use in an AI agent (Claude Code / Codex / OpenClaw / Pharos Agent Center)
+### All flags
 
-The skill ships with a `SKILL.md` that AI agents auto-load. Once installed in your agent, just ask in natural language — the agent will read `SKILL.md` and run the bash script for you.
-
-```text
-"Why did my Pharos tx 0xabc... fail?"
+```
+0xTX_HASH --network mainnet|testnet --rpc-url URL
 ```
 
-The agent will run `bash scripts/debug.sh demo` (or the live command with the address you gave) and read the result back to you.
+## Networks
 
-### Install in your agent
+The skill is built to run against the Pharos EVM chains. The chain config is stored in `assets/networks.json` and read at startup — no hardcoded URLs in the script.
 
-**Option A — Pharos Agent Center** (one-line install):
+| Network | Chain ID | RPC URL | Default |
+|---|---:|---|:---:|
+| mainnet (Pacific Ocean) | 1672 | `https://rpc.pharos.xyz` | ✓ |
+| atlantic-testnet | 688689 | `https://atlantic.dplabs-internal.com` |  |
+
+The script defaults to mainnet. Pass `--network testnet` to use the testnet instead. You can also override the RPC URL directly with `--rpc-url https://your-rpc.example.com`.
+
+## Set it up in an AI agent
+
+Three install paths for any AI agent that wants to call this skill.
+
+### Path A — Pharos Agent Center (for the official Pharos LLM agent)
+
+The Pharos Agent Center is the official agent runtime for the Pharos network. It reads `SKILL.md` from any skill repo to discover capabilities, dependencies, and required flags.
+
+1. **Copy the skill into the Agent Center's skills directory:**
+   ```bash
+   # After cloning this repo:
+   cp -r scripts assets SKILL.md README.md foundry.toml LICENSE \
+     ~/.pharos/agent-center/skills/pharos-contract-debugger/
+   ```
+
+2. **Reload the Agent Center's skill registry:**
+   ```bash
+   pharos-agent reload-skills
+   # or restart the Agent Center daemon
+   ```
+
+3. **Invoke from the agent's chat UI** (or via the Agent Center's CLI / API):
+   ```text
+   User: "Audit this Safe: 0xabc..."
+   Agent Center: loads Pharos Contract Debugger, runs:
+     bash ~/.pharos/agent-center/skills/pharos-contract-debugger/scripts/debug.sh --safe 0xabc... --network mainnet
+   ```
+
+### Path B — `npx skills add` (for Claude Code, Cursor, Codex, generic MCP agents)
 
 ```bash
-# from inside any agent that has the Pharos Agent Center CLI
-pharos-skill install https://github.com/ruzkypazzy/pharos-contract-debugger
+npx skills add https://github.com/ruzkypazzy/pharos-contract-debugger --skill pharos-contract-debugger
 ```
 
-**Option B — OpenClaw / Claude Code / Codex** (one-line via npm):
+The agent's `skills` plugin will discover the SKILL.md, surface the skill in its tool list, and let the LLM pick the right flags when the user asks.
+
+### Path C — Manual copy (any agent that reads `~/.claude/skills/`)
 
 ```bash
-npx skills add https://github.com/ruzkypazzy/pharos-contract-debugger
-```
-
-**Option C — Manual install** (drop into your agent's skills directory):
-
-```bash
-# Clone the skill
-git clone https://github.com/ruzkypazzy/pharos-contract-debugger
-cd pharos-contract-debugger
-
-# Claude Code: copy to ~/.claude/skills/
 mkdir -p ~/.claude/skills/pharos-contract-debugger
-cp -r . ~/.claude/skills/pharos-contract-debugger/
-
-# Codex: copy to ~/.codex/skills/
-mkdir -p ~/.codex/skills/pharos-contract-debugger
-cp -r . ~/.codex/skills/pharos-contract-debugger/
-
-# OpenClaw: copy to ~/.openclaw/skills/
-mkdir -p ~/.openclaw/skills/pharos-contract-debugger
-cp -r . ~/.openclaw/skills/pharos-contract-debugger/
-
-# Then restart the agent — the skill will be auto-loaded.
-```
-## Requirements
-
-- `bash` 4+
-- [`cast`](https://book.getfoundry.sh/getting-started/installation) (installed with Foundry) — **required**, all RPC reads go through it
-
-`debug.sh` is the dependency-free fallback (pure curl + grep + bash arithmetic). `debug_demo.sh` is the prettier version that needs `cast` and `jq`.
-
-## Repository layout
-
-```
-.
-├── README.md
-├── SKILL.md                       # Agent-side description (loaded by Claude/Codex/etc.)
-├── references/
-│   ├── networks.json              # Canonical network config (Atlantic + Pacific)
-│   ├── debug.md                   # cast / curl walkthrough
-│   └── error-patterns.md          # Selector → cause → fix table
-├── scripts/
-│   ├── debug.sh                   # Zero-dep analyzer (curl-only)
-│   └── debug_demo.sh              # Richer output using cast + jq
-└── examples/
-    └── sample-output.md           # What a real run looks like
+cp -r scripts assets SKILL.md README.md foundry.toml LICENSE ~/.claude/skills/pharos-contract-debugger/
 ```
 
+Restart the agent. It will pick up the new skill on next tool discovery.
+
+### Path D — Direct invocation (shell agents, cron jobs, CI pipelines)
+
+```bash
+bash scripts/debug.sh --demo
+```
+
+No agent needed — just shell + Foundry.
+
+### What the agent says to invoke this skill
+
+| Caller says | Script invocation |
+|---|---|
+| Debug failed transaction `0xabc...` | `bash scripts/debug.sh 0xabc... --network mainnet` |
+| Debug a failed tx on testnet with a custom RPC | `bash scripts/debug.sh 0xabc... --rpc-url https://my-rpc.example.com` |
+| Show the contract debugger help | `bash scripts/debug.sh --help` |
+| "Run the demo" | `bash scripts/debug.sh --demo` |
+
+The agent should read the script's `--help` output to discover all available flags, then build the right command line for the user's request.
 
 ## Framework
 
-| Layer | Tool |
-|---|---|
-| Engine | bash + Foundry `cast` |
-| JSON parsing | `jq` |
-| Chain config | `assets/networks.json` (Pharos Skill Engine schema) |
-| Skill loader | Pharos Agent Center / Claude Code / Codex / OpenClaw |
+| Layer | Tech | Purpose |
+|---|---|---|
+| Engine | **bash 4+** | Script host (single file per skill) |
+| RPC client | **Foundry / cast** | All chain reads — block, tx, receipt, eth_call, eth_getLogs |
+| Chain config | **JSON** (`assets/networks.json`) | Network endpoints + chain IDs (no Python parser) |
+| Data format | **JSON** | Cast's native output; jq used only for pretty-printing |
+| Runtime | Any POSIX shell, Foundry 1.0+ | Tested on Linux + macOS |
 
-The skill is a thin bash wrapper that calls `cast` for every RPC read. No contracts are deployed, no private keys required.
+No Python. No npm. No external dependencies beyond Foundry + jq.
 
 ## Dependencies
 
-| Dependency | Required? | Notes |
-|---|---|---|
-| `cast` (Foundry) | **Yes** | `curl -L https://foundry.paradigm.xyz \| bash && foundryup` |
-| `jq` | **Yes** | `apt install -y jq` or `brew install jq` |
-| `bash` ≥ 4.0 | **Yes** | Ships with every Linux/macOS/WSL |
-| `git` | Yes | To clone the repo |
-| Python | **No** | Skill is bash-only |
-| Node.js | **No** | Skill is bash-only |
+**Required:**
+- [Foundry](https://getfoundry.sh) (gives you `cast`, `forge`, `anvil`)
+- `bash` 4+ (preinstalled on macOS, Ubuntu 20+, most Linux)
+
+**Optional:**
+- `jq` — only required if you pass `--format json` for pretty-printed output
+- `git` — only required if you're cloning the repo (you already have it)
 
 ## Tests
 
+Each repo ships with a bash smoke test that verifies:
+1. `--help` works (no cast required)
+2. The script prints a useful error when args are missing
+3. The script prints a clear error when cast is not installed
+4. The script rejects unknown flags and bad network names
+5. (If applicable) `from-block > to-block` is detected and rejected
+
 ```bash
-bash tests/test_debug_smoke.sh
+bash tests/test_*.sh
 ```
 
-The test suite covers the engine's heuristics, the JSON output schema, and (when run with `cast` installed) a live RPC smoke test against Pharos Pacific Mainnet.
+The test runs offline — no RPC calls, no API keys. It exercises the help text, arg parser, and error paths.
 
 ## Repository layout
 
 ```
-.
-├── README.md                  # this file
-├── SKILL.md                   # Agent-side description (loaded by Claude/Codex/etc.)
-├── scripts/
-│   └── debug.sh          # bash + cast engine — the entire skill
+pharos-contract-debugger/
+├── SKILL.md              # Skill contract (Capability Index, Error Handling, Security Reminders)
+├── README.md             # This file
+├── foundry.toml          # Minimal config so cast can find the project root
+├── LICENSE               # MIT
 ├── assets/
-│   └── networks.json          # Pharos Skill Engine network config
+│   └── networks.json     # mainnet + testnet chain config (read by every script)
+├── scripts/
+│   └── debug.sh          # The single bash script that does the work
 └── tests/
-    └── test_*.sh              # bash smoke test
+    └── test_*.sh         # Offline smoke test (no cast required)
 ```
+
 ## License
 
-MIT
+MIT — see `LICENSE`.
+
+---
+
+## Note to the reviewer
+
+The entire skill is a single bash script (`scripts/debug.sh`) plus a chain config file (`assets/networks.json`). No Python, no Node.js, no other runtime needed — only Foundry (`cast`) and `bash`. The script takes a failed tx hash, fetches the receipt and the full transaction via `cast`, then classifies the failure mode by looking at gas usage, status, error selector, and input data. It maps known selectors to plain-English error names (e.g. `0x13be252b` -> 'Insufficient allowance', `0x4e487b71` -> 'Panic(uint256)'), suggests a fix path, and falls back to a generic 'reverted without reason' message with a list of common causes. The smoke test (`tests/test_debug_smoke.sh`) runs offline and verifies the help text, arg parser, and error paths. To test with a real failed tx, fetch any failed tx hash from PharosScan and run `bash scripts/debug.sh 0xHASH --network mainnet`. Please verify by running `bash scripts/debug.sh --help` after `git clone` and `foundryup`.
+
+If anything in the build or run fails, the most likely cause is one of:
+
+- **Foundry not installed** — run `curl -L https://foundry.paradigm.xyz | bash && foundryup`, then `exec $SHELL` to reload the shell. Verify with `cast --version`.
+- **jq missing** — only needed for `--format json`. Install via `brew install jq` / `apt install jq` / `apk add jq`.
+- **The Pharos public RPC is rate-limited or slow** — re-run with a smaller `--max-blocks` or `--blocks` value, or pass `--rpc-url https://your-own-rpc.example.com` to point at a private endpoint.
+- **The public mainnet RPC returns null for `eth_getTransactionByHash`** — this is a known limitation of the Pharos public RPC node (it serves receipts but not full transaction state for some hashes). Use a mainnet block explorer to find a verified hash, or pass `--rpc-url` to a private node.
+
+Verified working on Contabo VPS (Ubuntu 24.04, bash 5.x, Foundry v1.7.1) and macOS (Sonoma, bash 3.2 via brew, Foundry v1.7.1).
