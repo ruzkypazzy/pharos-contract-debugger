@@ -192,17 +192,19 @@ echo "Gas:      $GAS_USED used / $GAS_LIMIT limit"
 echo "Status:   $STATUS_HEX (1 = success, 0 = failure)"
 echo ""
 
-# Status check: 1 (or anything non-zero/non-empty) = success, 0 = failure
-# Handle both "1" (decimal) and "0x1" (hex) by stripping 0x already done above
-if [ -n "$STATUS_HEX" ] && [ "$STATUS_HEX" != "0" ]; then
-  echo "✅ STATUS: SUCCESS"
+# Status check: ONLY claim success/failure if we have hard evidence.
+# - status="1" or "0x1" -> SUCCESS
+# - status="0" or "0x0" -> FAILED
+# - anything else (empty, garbage, "null", "undefined") -> UNKNOWN
+if [ "$STATUS_HEX" = "1" ]; then
+  echo "✅ STATUS: SUCCESS (cast reported status=1)"
   echo "   Transaction executed successfully."
   if [ "$GAS_LIMIT" -gt 0 ] 2>/dev/null; then
     PCT=$(( GAS_USED * 100 / GAS_LIMIT ))
     echo "   Gas utilization: ${PCT}%"
   fi
-else
-  echo "❌ STATUS: FAILED"
+elif [ "$STATUS_HEX" = "0" ]; then
+  echo "❌ STATUS: FAILED (cast reported status=0)"
   echo ""
   echo "🔎 DIAGNOSIS"
   echo "------------"
@@ -239,8 +241,24 @@ else
       echo "     cast run $TX_HASH --rpc-url $RPC_URL"
     fi
   fi
+else
+  echo "⚠️  STATUS: UNKNOWN (could not determine)"
+  echo ""
+  echo "   Cast did not return a recognizable status for this transaction."
+  echo "   STATUS_HEX='$STATUS_HEX'"
+  echo ""
+  echo "   Possible reasons:"
+  echo "     • The Pharos public RPC at $RPC_URL returned a partial / malformed receipt"
+  echo "     • The transaction hash is on a different network — try --network testnet"
+  echo "     • cast's status field returned something unexpected (empty, 'null', whitespace, etc.)"
+  echo ""
+  echo "   To debug manually, run on your VPS:"
+  echo "     cast receipt --rpc-url $RPC_URL $TX_HASH --json 2>&1 | jq ."
+  echo "     cast receipt --rpc-url $RPC_URL $TX_HASH status"
+  echo ""
+  echo "   Or open the tx in the block explorer:"
+  echo "     ${EXPLORER_URL}tx/$TX_HASH"
 fi
 
-echo ""
 echo "🔗 View on Explorer: ${EXPLORER_URL}tx/$TX_HASH"
 echo "📡 Network: $NET_KEY (chain $CHAIN_ID)"
