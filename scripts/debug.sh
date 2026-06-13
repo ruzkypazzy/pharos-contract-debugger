@@ -99,7 +99,39 @@ echo ""
 
 # -------- fetch receipt via cast (try --json first, fall back to per-field) --------
 echo "📡 Fetching transaction receipt via cast..."
-RECEIPT_JSON=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" --json 2>/dev/null || echo "")
+
+# Try the JSON receipt, capturing both stdout and stderr so we can show errors
+RECEIPT_STDERR=$(mktemp)
+RECEIPT_JSON=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" --json 2>"$RECEIPT_STDERR" || echo "")
+
+# If JSON fetch returned empty/garbage, capture what cast actually said
+if [ -z "$RECEIPT_JSON" ] || [ "$RECEIPT_JSON" = "null" ]; then
+  # Try the per-field calls so we have something to compare against
+  STATUS_DIRECT=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" status 2>/dev/null | tr -d '[:space:]')
+  if [ -z "$STATUS_DIRECT" ]; then
+    # Cast genuinely failed to fetch the receipt. Show what cast said.
+    echo ""
+    echo "❌ Cast could not fetch the receipt for $TX_HASH on $NET_KEY."
+    echo ""
+    if [ -s "$RECEIPT_STDERR" ]; then
+      echo "Cast error output:"
+      cat "$RECEIPT_STDERR" | sed 's/^/   /'
+      echo ""
+    fi
+    echo "Possible causes:"
+    echo "  • The tx hash is wrong (typo? wrong network? — try --network testnet)"
+    echo "  • The Pharos public RPC at $RPC_URL is down or rate-limiting you"
+    echo "  • cast is broken (run 'cast --version' to verify, reinstall with foundryup if needed)"
+    echo "  • You have no network access from this terminal"
+    OTHER=$([ "$NET_KEY" = "mainnet" ] && echo testnet || echo mainnet)
+    echo ""
+    echo "Try with the other network:"
+    echo "  bash scripts/debug.sh $TX_HASH --network $OTHER"
+    rm -f "$RECEIPT_STDERR"
+    exit 1
+  fi
+fi
+rm -f "$RECEIPT_STDERR"
 
 # Parse status robustly. Accept any of:
 #   - "0x1" / "0x0"     (hex with 0x prefix — most common)
@@ -118,16 +150,6 @@ extract_status() {
   echo "$s"
 }
 STATUS_HEX=$(extract_status)
-
-if [ -z "$RECEIPT_JSON" ] || [ "$RECEIPT_JSON" = "null" ] || ! echo "$RECEIPT_JSON" | grep -q '"status"'; then
-  # If the JSON parse failed but the per-field status returned something, that's OK
-  if [ -z "$STATUS_HEX" ]; then
-    echo "❌ Transaction not found on $NET_KEY."
-    OTHER=$([ "$NET_KEY" = "mainnet" ] && echo testnet || echo mainnet)
-    echo "   Try: bash scripts/debug.sh $TX_HASH --network $OTHER"
-    exit 1
-  fi
-fi
 
 # -------- extract other receipt fields via cast (more reliable than JSON parsing) --------
 TO=$(cast receipt --rpc-url "$RPC_URL" "$TX_HASH" to 2>/dev/null | tr -d '\n' | tr -d '[:space:]')
